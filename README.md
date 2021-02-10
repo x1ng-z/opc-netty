@@ -11,3 +11,4 @@
 
 运行说明：
 将opcproxy.exe、msvcp140.dll、vcruntime140.dll三个文件放置于该工程(opc-netty)打包完的jar同一目录下
+推荐部署平台win10
