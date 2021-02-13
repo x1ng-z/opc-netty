@@ -140,7 +140,12 @@ public class OpcExecute implements Runnable {
             while (trycheck-- > 0) {
                 if (isOpcServeOnline()) {
                     logger.info(opcsevename + opcseveip + " reconnect success");
-                    if (registeredMeasurePoint.size() > 0) {
+
+                    if (waittoregistertag.size() != registeredMeasurePoint.size()) {
+                        for (MeasurePoint measurePoint : waittoregistertag.values()) {
+                            sendAddItemCmd(measurePoint.getPoint().getTag());
+                        }
+                    } else if (registeredMeasurePoint.size() > 0) {
 //                        for(MeasurePoint measurePoint:registeredMeasurePoint.values()){
 //                            sendAddItemCmd(measurePoint.getPoint().getTag());
 //                        }
