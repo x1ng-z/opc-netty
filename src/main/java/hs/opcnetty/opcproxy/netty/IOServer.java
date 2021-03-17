@@ -1,6 +1,6 @@
 package hs.opcnetty.opcproxy.netty;
 
-import hs.fullwrite.opcproxy.session.SessionManager;
+import hs.opcnetty.opcproxy.session.SessionManager;
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelOption;

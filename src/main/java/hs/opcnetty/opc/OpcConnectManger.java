@@ -1,11 +1,6 @@
 package hs.opcnetty.opc;
 
-import com.alibaba.fastjson.JSONArray;
-import com.alibaba.fastjson.JSONObject;
-
 import hs.opcnetty.bean.OpcServeInfo;
-import hs.opcnetty.bean.Point;
-import hs.opcnetty.opc.event.RegisterEvent;
 import hs.opcnetty.opcproxy.session.SessionManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -13,9 +8,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
-import javax.annotation.PostConstruct;
 import javax.annotation.PreDestroy;
-import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
@@ -54,8 +47,8 @@ public class OpcConnectManger /*implements Runnable*/ {
     private OpcGroup connectinit(OpcServeInfo serveInfo) {
 
         OpcGroup opcGroup = new OpcGroup();
-        OpcExecute readopcexecute = new OpcExecute(OpcExecute.FUNCTION_READ, serveInfo, opcservedir, "127.0.0.1", nettypoty, serveInfo.getServename(), serveInfo.getServeip(), serveInfo.getServeid() + "", sessionManager);
-        OpcExecute writeopcexecute = new OpcExecute(OpcExecute.FUNCTION_WRITE, serveInfo, opcservedir, "127.0.0.1", nettypoty, serveInfo.getServename(), serveInfo.getServeip(), serveInfo.getServeid() + "", sessionManager);
+        OpcExecute readopcexecute = new OpcExecute(OpcExecute.FUNCTION_READ, serveInfo, opcservedir, "127.0.0.1", nettypoty, serveInfo.getServename(), serveInfo.getServeip(), Integer.toString(serveInfo.getServeid()) , sessionManager);
+        OpcExecute writeopcexecute = new OpcExecute(OpcExecute.FUNCTION_WRITE, serveInfo, opcservedir, "127.0.0.1", nettypoty, serveInfo.getServename(), serveInfo.getServeip(), Integer.toString(serveInfo.getServeid()), sessionManager);
 
         opcGroup.setReadopcexecute(readopcexecute);
         opcGroup.setWriteopcexecute(writeopcexecute);

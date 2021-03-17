@@ -7,9 +7,6 @@ import hs.opcnetty.bean.MeasurePoint;
 import hs.opcnetty.bean.OpcServeInfo;
 import hs.opcnetty.opc.bridge.ExecutePythonBridge;
 import hs.opcnetty.opc.event.Event;
-import hs.opcnetty.opc.event.RegisterEvent;
-import hs.opcnetty.opc.event.UnRegisterEvent;
-import hs.opcnetty.opc.event.WriteEvent;
 import hs.opcnetty.opcproxy.command.CommandImp;
 import hs.opcnetty.opcproxy.session.Session;
 import hs.opcnetty.opcproxy.session.SessionManager;
@@ -47,14 +44,14 @@ public class OpcExecute implements Runnable {
     private long writetimestamp = System.currentTimeMillis();
     private String function;
 
-    private Map<String, MeasurePoint> registeredMeasurePoint = new ConcurrentHashMap();
-    private Map<String, MeasurePoint> waittoregistertag = new ConcurrentHashMap<>();
+    private Map<String, MeasurePoint> registeredMeasurePointpool = new ConcurrentHashMap();
+    private Map<String, MeasurePoint> waittoregistertagpool = new ConcurrentHashMap<>();
     private LinkedBlockingQueue<Event> eventLinkedBlockingQueue = new LinkedBlockingQueue();
 
     private int reconnectcount = 0;
 
     public synchronized void addwaitaddIteambuf(MeasurePoint m) {
-        waittoregistertag.put(m.getPoint().getTag(), m);
+        waittoregistertagpool.put(m.getPoint().getTag(), m);
     }
 
     public boolean addOPCEvent(Event event) {
@@ -99,9 +96,9 @@ public class OpcExecute implements Runnable {
      * 把进行重连操作，使得读取数据不异常！
      */
     public synchronized void connect() {
-
         if (!isOpcServeOnline()) {
             logger.info("*********need connect " + function);
+            //set reconnect count 1
             setReconnectcount(1);
             executePythonBridge.stop();
             executePythonBridge.execute();
@@ -109,8 +106,9 @@ public class OpcExecute implements Runnable {
             while (trycheck-- > 0) {
                 if (isOpcServeOnline()) {
                     logger.info("********" + opcsevename + opcseveip + " connect success");
-                    for (MeasurePoint measurePoint : registeredMeasurePoint.values()) {
-                        sendAddItemCmd(measurePoint.getPoint().getTag());
+                    registeredMeasurePointpool.clear();
+                    if (waittoregistertagpool.size() > 0) {
+                        sendPatchAddItemCmd(waittoregistertagpool.values());
                     }
                     break;
                 } else {
@@ -123,7 +121,6 @@ public class OpcExecute implements Runnable {
                     return;
                 }
             }
-//            registeredMeasurePoint.clear();
 
         } else {
             logger.info(" connect status is hold");
@@ -139,17 +136,11 @@ public class OpcExecute implements Runnable {
             int trycheck = 3;
             while (trycheck-- > 0) {
                 if (isOpcServeOnline()) {
-                    logger.info(opcsevename + opcseveip + " reconnect success");
-
-                    if (waittoregistertag.size() != registeredMeasurePoint.size()) {
-                        for (MeasurePoint measurePoint : waittoregistertag.values()) {
-                            sendAddItemCmd(measurePoint.getPoint().getTag());
-                        }
-                    } else if (registeredMeasurePoint.size() > 0) {
-//                        for(MeasurePoint measurePoint:registeredMeasurePoint.values()){
-//                            sendAddItemCmd(measurePoint.getPoint().getTag());
-//                        }
-                        sendPatchAddItemCmd(registeredMeasurePoint.values());
+                    logger.info(opcsevename + opcseveip + function + " reconnect success");
+                    logger.info(opcsevename + opcseveip + function + "registeredMeasurePoint size=" + registeredMeasurePointpool.size());
+                    registeredMeasurePointpool.clear();
+                    if(waittoregistertagpool.size()>0){
+                        sendPatchAddItemCmd(waittoregistertagpool.values());
                     }
 
                     break;
@@ -157,14 +148,12 @@ public class OpcExecute implements Runnable {
                     logger.info("try reconnect failed");
                 }
                 try {
-                    TimeUnit.SECONDS.sleep(5);
+                    TimeUnit.SECONDS.sleep(3);
                 } catch (InterruptedException e) {
                     logger.error(e.getMessage(), e);
                     return;
                 }
             }
-//            registeredMeasurePoint.clear();
-
         } else {
             logger.info(" connect status is hold");
         }
@@ -204,7 +193,7 @@ public class OpcExecute implements Runnable {
             if (key.equals("function")) {
                 continue;
             }
-            MeasurePoint measurePoint = registeredMeasurePoint.get(key);
+            MeasurePoint measurePoint = registeredMeasurePointpool.get(key);
             if (measurePoint != null) {
                 float value = datajson.getFloatValue(key);
                 measurePoint.setValue(value);
@@ -216,68 +205,17 @@ public class OpcExecute implements Runnable {
     }
 
 
-    public void sendWriteItemCmd(String tag, float value) {
-
-        JSONArray jsonArray = new JSONArray();
-        JSONObject msg = new JSONObject();
-        msg.put("tag", tag);
-        msg.put("value", value);
-        jsonArray.add(msg);
-        try {
-            sessionManager.getSpecialSession(serveInfo.getServeid(), function).getCtx().writeAndFlush(
-                    CommandImp.WRITE.build(jsonArray.toJSONString().getBytes("utf-8"), serveInfo.getServeid())
-            );
-        } catch (UnsupportedEncodingException e) {
-            logger.error(e.getMessage(), e);
-        }
-
-    }
-
-
-    public void sendRemoveItemCmd(String tag) {
-        JSONObject msg = new JSONObject();
-        msg.put("tag", tag);
-        JSONArray jsonArray = new JSONArray();
-        jsonArray.add(msg);
-        try {
-            sessionManager.getSpecialSession(serveInfo.getServeid(), function).getCtx().writeAndFlush(
-                    CommandImp.REMOVEITEM.build(jsonArray.toJSONString().getBytes("utf-8"), serveInfo.getServeid())
-            );
-        } catch (UnsupportedEncodingException e) {
-            logger.error(e.getMessage(), e);
-        }
-    }
-
     public void dealRemoveResult(JSONObject datajson) {
         for (String key : datajson.keySet()) {
             if (key.equals("function")) {
                 continue;
             }
             if (1 == datajson.getInteger(key)) {
-                registeredMeasurePoint.remove(key);
+                registeredMeasurePointpool.remove(key);
             }
         }
     }
 
-    public boolean sendAddItemCmd(String tag) {
-        JSONObject msg = new JSONObject();
-        msg.put("tag", tag);
-        JSONArray jsonArray = new JSONArray();
-        jsonArray.add(msg);
-        try {
-            if (sessionManager.getSpecialSession(serveInfo.getServeid(), function).getCtx() != null) {
-                sessionManager.getSpecialSession(serveInfo.getServeid(), function).getCtx().writeAndFlush(
-                        CommandImp.ADDITEM.build(jsonArray.toJSONString().getBytes("utf-8"), serveInfo.getServeid())
-                );
-            } else {
-                return false;
-            }
-
-        } catch (UnsupportedEncodingException e) {
-            logger.error(e.getMessage(), e);
-        }
-        return false;
-    }
 
     public void sendPatchAddItemCmd(Collection<MeasurePoint> measurePointCollection) {
         JSONArray jsonArray = new JSONArray();
@@ -332,8 +270,8 @@ public class OpcExecute implements Runnable {
                 continue;
             }
             if (1 == datajson.getInteger(key)) {
-                MeasurePoint point = waittoregistertag.get(key);
-                registeredMeasurePoint.put(key, point);
+                MeasurePoint point = waittoregistertagpool.get(key);
+                registeredMeasurePointpool.put(key, point);
             }
         }
     }
@@ -370,33 +308,8 @@ public class OpcExecute implements Runnable {
                     if (isOpcServeOnline()) {
                         while (eventLinkedBlockingQueue.size() != 0) {
                             Event event = eventLinkedBlockingQueue.poll();
-                            if ((event != null) && (event.getPoint() != null)) {
-                                if (event instanceof WriteEvent) {
-                                    if (registeredMeasurePoint.containsKey(event.getPoint().getTag())) {
-                                        WriteEvent writeevent = (WriteEvent) event;
-                                        sendWriteItemCmd(writeevent.getPoint().getTag(), writeevent.getValue());
-
-                                    }
-                                } else if (event instanceof RegisterEvent) {
-                                    RegisterEvent registerevent = (RegisterEvent) event;
-                                    if (!registeredMeasurePoint.containsKey(registerevent.getPoint().getTag())) {
-                                        MeasurePoint measurePoint = new MeasurePoint();
-                                        measurePoint.setPoint(registerevent.getPoint());
-
-                                        waittoregistertag.put(registerevent.getPoint().getTag(), measurePoint);
-                                        if (sendAddItemCmd(registerevent.getPoint().getTag())) {
-                                            eventLinkedBlockingQueue.offer(event);
-                                        }
-                                        ;
-                                        logger.info("***** even " + registerevent.getPoint().getTag());
-                                    }
-                                } else if (event instanceof UnRegisterEvent) {
-                                    if (registeredMeasurePoint.containsKey(event.getPoint().getTag())) {
-                                        UnRegisterEvent unregisterevent = (UnRegisterEvent) event;
-                                        sendRemoveItemCmd(unregisterevent.getPoint().getTag());
-                                    }
-
-                                }
+                            if ((event != null)) {
+                                event.execute(this);
                             }
                         }
                     }
@@ -404,7 +317,7 @@ public class OpcExecute implements Runnable {
 
 
                 synchronized (this) {
-                    if (registeredMeasurePoint.size() > 0 && function.equals(OpcExecute.FUNCTION_READ)) {
+                    if (registeredMeasurePointpool.size() > 0 && function.equals(OpcExecute.FUNCTION_READ)) {
                         sendReadAllItemsCmd();
                     }
                 }
@@ -419,12 +332,21 @@ public class OpcExecute implements Runnable {
         }
     }
 
+
+    public Session getMySession() {
+        return sessionManager.getSpecialSession(serveInfo.getServeid(), function);
+    }
+
+    public void addRetryEvent(Event event) {
+        eventLinkedBlockingQueue.offer(event);
+    }
+
     public ExecutePythonBridge getExecutePythonBridge() {
         return executePythonBridge;
     }
 
-    public Map<String, MeasurePoint> getRegisteredMeasurePoint() {
-        return registeredMeasurePoint;
+    public Map<String, MeasurePoint> getRegisteredMeasurePointpool() {
+        return registeredMeasurePointpool;
     }
 
     public synchronized int getReconnectcount() {
@@ -437,5 +359,53 @@ public class OpcExecute implements Runnable {
 
     public synchronized void minsReconnectcount() {
         reconnectcount--;
+    }
+
+    public String getExename() {
+        return exename;
+    }
+
+    public String getIp() {
+        return ip;
+    }
+
+    public String getPort() {
+        return port;
+    }
+
+    public String getOpcsevename() {
+        return opcsevename;
+    }
+
+    public String getOpcseveip() {
+        return opcseveip;
+    }
+
+    public String getOpcsevid() {
+        return opcsevid;
+    }
+
+    public OpcServeInfo getServeInfo() {
+        return serveInfo;
+    }
+
+    public SessionManager getSessionManager() {
+        return sessionManager;
+    }
+
+    public long getWritetimestamp() {
+        return writetimestamp;
+    }
+
+    public String getFunction() {
+        return function;
+    }
+
+    public Map<String, MeasurePoint> getWaittoregistertagpool() {
+        return waittoregistertagpool;
+    }
+
+    public LinkedBlockingQueue<Event> getEventLinkedBlockingQueue() {
+        return eventLinkedBlockingQueue;
     }
 }

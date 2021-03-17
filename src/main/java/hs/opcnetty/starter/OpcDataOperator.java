@@ -34,7 +34,7 @@ public class OpcDataOperator {
         OpcGroup opcGroup = opcConnectManger.getOpcconnectpool().get(opcserveid);
         JSONArray opcdata = new JSONArray();
         if (opcGroup != null) {
-            for (MeasurePoint measurepoint : opcGroup.getReadopcexecute().getRegisteredMeasurePoint().values()) {
+            for (MeasurePoint measurepoint : opcGroup.getReadopcexecute().getRegisteredMeasurePointpool().values()) {
                 Instant valuegettime = measurepoint.getInstant();
                 if (valuegettime != null) {
                     JSONObject cellopcdata = new JSONObject();
@@ -59,7 +59,7 @@ public class OpcDataOperator {
         for (Point point : pointlist) {
             OpcGroup opcGroup = opcConnectManger.getOpcconnectpool().get(point.getOpcserveid());
             if (opcGroup != null) {
-                MeasurePoint measurepoint = opcGroup.getReadopcexecute().getRegisteredMeasurePoint().get(point.getTag());
+                MeasurePoint measurepoint = opcGroup.getReadopcexecute().getRegisteredMeasurePointpool().get(point.getTag());
                 Instant valuegettime = measurepoint.getInstant();
                 if ((measurepoint != null) && (valuegettime != null)) {
                     JSONObject cellopcdata = new JSONObject();
@@ -82,7 +82,7 @@ public class OpcDataOperator {
     public void writeSecialRegisterItems(Point point) {
         OpcGroup opcGroup = opcConnectManger.getOpcconnectpool().get(point.getOpcserveid());
         if (opcGroup != null) {
-            WriteEvent writeevent = new WriteEvent();
+            WriteEvent writeevent = new WriteEvent(point.getValue());
             writeevent.setPoint(point);
             writeevent.setValue(point.getValue());
             opcGroup.getWriteopcexecute().addOPCEvent(writeevent);

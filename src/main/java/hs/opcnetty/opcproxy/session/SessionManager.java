@@ -19,7 +19,7 @@ public class SessionManager {
 
     private Map<ChannelHandlerContext, Session> modulepool = new ConcurrentHashMap<>();
 
-    public synchronized void addSessionModule(int nodeid, String function, ChannelHandlerContext ctx) {
+    public synchronized void addSessionModule(long nodeid, String function, ChannelHandlerContext ctx) {
         if (!modulepool.containsKey(ctx)) {
             Session session = new Session();
             session.setCtx(ctx);
@@ -38,7 +38,7 @@ public class SessionManager {
         return null;
     }
 
-    public synchronized Session  getSpecialSession(int opcserveid, String function){
+    public synchronized Session  getSpecialSession(long opcserveid, String function){
 
         for(Session session:modulepool.values()){
             if(session.getOpcserveid()==opcserveid&&session.getFunction().equals(function)){
