@@ -18,7 +18,6 @@ public class OpcConnectServeOperator {
     @Autowired
     private OpcConnectManger opcConnectManger;
 
-
     /**
      * 注册opc服务
      *
@@ -34,10 +33,7 @@ public class OpcConnectServeOperator {
      * @param serveInfo 内容参看类文件
      */
     public void unregisterOpcServe(OpcServeInfo serveInfo){
-        opcConnectManger.closeSpecialOpcserve(serveInfo);
+        opcConnectManger.closeSpecial(serveInfo);
     }
-
-
-
 
 }

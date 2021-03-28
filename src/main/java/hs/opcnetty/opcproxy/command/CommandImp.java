@@ -5,6 +5,7 @@ import com.alibaba.fastjson.JSONObject;
 
 import hs.opcnetty.opc.OpcConnectManger;
 import hs.opcnetty.opc.OpcExecute;
+import hs.opcnetty.opc.OpcGroup;
 import hs.opcnetty.opcproxy.session.Session;
 import hs.opcnetty.opcproxy.session.SessionManager;
 import hs.opcnetty.util.ByteUtil;
@@ -64,12 +65,16 @@ public enum CommandImp implements Command {
                 long opcserveid = ByteUtil.byteToLong(context, 3, false, ByteUtil.CType.Int);
                 JSONObject heartmsg = analye(context);
                 sessionManager.addSessionModule(opcserveid, heartmsg.getString("function"), ctx);
+                OpcGroup opcGroup =opcConnectManger.getOpcconnectpool().get(opcserveid);
+
                 /***写进程重连判定在心跳包中进行处理，主要是在连接完成后，再断开重连一下，已应对某些opc服务器单次重连读取数据异常的问题*/
                 if (heartmsg.getString("function").equals(OpcExecute.FUNCTION_WRITE) && (opcConnectManger.getOpcconnectpool().get(opcserveid).getWriteopcexecute().getReconnectcount() > 0)) {
+                    opcGroup.getWriteopcexecute().updateConnextStatus(OpcExecute.ConnectStatus.CONNECTED);
                     synchronized (opcConnectManger.getOpcconnectpool().get(opcserveid).getWriteopcexecute()) {
                         try {
-                            opcConnectManger.getOpcconnectpool().get(opcserveid).getWriteopcexecute().sendStopItemsCmd();
+                            opcGroup.getWriteopcexecute().sendStopItemsCmd();
                             TimeUnit.MICROSECONDS.sleep(100);
+                            opcGroup.getWriteopcexecute().updateConnextStatus(OpcExecute.ConnectStatus.DISCONNECTED);
                             opcConnectManger.getOpcconnectpool().get(opcserveid).getWriteopcexecute().minsReconnectcount();
                             Session session = sessionManager.removeSessionModule(ctx);
                             if (session != null) {
@@ -80,6 +85,9 @@ public enum CommandImp implements Command {
                             logger.error(e.getMessage(), e);
                         }
                     }
+                }else {
+                    //更新状态
+                    opcGroup.getReadopcexecute().updateConnextStatus(OpcExecute.ConnectStatus.CONNECTED);
                 }
             }
 
@@ -104,8 +112,6 @@ public enum CommandImp implements Command {
         public void operate(byte[] context, ChannelHandlerContext ctx, SessionManager sessionManager, OpcConnectManger opcConnectManger) {
 
         }
-
-
     },
     /**
      * opc data result
@@ -117,14 +123,16 @@ public enum CommandImp implements Command {
 
                 JSONObject readjson = analye(context);
                 long opcserveid = ByteUtil.byteToLong(context, 3, false, ByteUtil.CType.Int);
+                OpcGroup opcGroup=opcConnectManger.getOpcconnectpool().get(opcserveid);
                 /***判断读取数据之前那判断下重连次数值是否为大于0，如果大于0，那么需要进行重连操作，同时把write processor重启*/
                 if (readjson.getString("function").equals(OpcExecute.FUNCTION_READ) && (opcConnectManger.getOpcconnectpool().get(opcserveid).getReadopcexecute().getReconnectcount() > 0)) {
 
-                    synchronized (opcConnectManger.getOpcconnectpool().get(opcserveid).getReadopcexecute()) {
+                    synchronized (opcGroup.getReadopcexecute()) {
                         try {
-                            opcConnectManger.getOpcconnectpool().get(opcserveid).getReadopcexecute().sendStopItemsCmd();
+                            opcGroup.getReadopcexecute().sendStopItemsCmd();
                             TimeUnit.MICROSECONDS.sleep(10);
-                            opcConnectManger.getOpcconnectpool().get(opcserveid).getReadopcexecute().minsReconnectcount();
+                            opcGroup.getReadopcexecute().updateConnextStatus(OpcExecute.ConnectStatus.DISCONNECTED);
+                            opcGroup.getReadopcexecute().minsReconnectcount();
                             Session session = sessionManager.removeSessionModule(ctx);
                             if (session != null) {
                                 session.getCtx().close();
@@ -135,11 +143,12 @@ public enum CommandImp implements Command {
                         }
                     }
 
-                    synchronized (opcConnectManger.getOpcconnectpool().get(opcserveid).getWriteopcexecute()) {
+                    synchronized (opcGroup.getWriteopcexecute()) {
                         //知道已经断线了，那么也重连下write processor
                         try {
                             Session writesession = sessionManager.getSpecialSession(opcserveid, OpcExecute.FUNCTION_WRITE);
                             opcConnectManger.getOpcconnectpool().get(opcserveid).getWriteopcexecute().sendStopItemsCmd();
+                            opcGroup.getWriteopcexecute().updateConnextStatus(OpcExecute.ConnectStatus.DISCONNECTED);
                             TimeUnit.MICROSECONDS.sleep(10);
                             if (writesession != null) {
                                 sessionManager.removeSessionModule(writesession.getCtx());
@@ -164,7 +173,10 @@ public enum CommandImp implements Command {
         @Override
         public void operate(byte[] context, ChannelHandlerContext ctx, SessionManager sessionManager, OpcConnectManger opcConnectManger) {
             if (valid(context)) {
-                logger.debug(analye(context).toJSONString());
+                JSONObject data=analye(context);
+                long opcserveid = ByteUtil.byteToLong(context, 3, false, ByteUtil.CType.Int);
+                OpcGroup opcGroup=opcConnectManger.getOpcconnectpool().get(opcserveid);
+                opcGroup.getWriteopcexecute().dealWriteResult(data);
             }
         }
     },

@@ -10,27 +10,32 @@ import hs.opcnetty.opc.event.Event;
 import hs.opcnetty.opcproxy.command.CommandImp;
 import hs.opcnetty.opcproxy.session.Session;
 import hs.opcnetty.opcproxy.session.SessionManager;
+import lombok.Data;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.UnsupportedEncodingException;
 import java.time.Instant;
 import java.util.Collection;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * @author zzx
  * @version 1.0
  * @date 2021/1/5 15:45
  */
+@Data
 public class OpcExecute implements Runnable {
     private Logger logger = LoggerFactory.getLogger(OpcExecute.class);
 
     public static final String FUNCTION_READ = "read";
     public static final String FUNCTION_WRITE = "write";
+
 
     private ExecutePythonBridge executePythonBridge;
     private String exename;
@@ -48,7 +53,21 @@ public class OpcExecute implements Runnable {
     private Map<String, MeasurePoint> waittoregistertagpool = new ConcurrentHashMap<>();
     private LinkedBlockingQueue<Event> eventLinkedBlockingQueue = new LinkedBlockingQueue();
 
-    private int reconnectcount = 0;
+
+
+    private AtomicInteger reconnectcount = new AtomicInteger(0);
+
+    private volatile ConnectStatus currentConnectStatus;//连接状态
+    private volatile Map<ConnectStatus, Long> satusTimeStamp = new ConcurrentHashMap();//连接状态时间戳
+
+    public ConnectStatus getCurrentConnectStatus() {
+        return currentConnectStatus;
+    }
+
+    public void updateConnextStatus(ConnectStatus connectStatus) {
+        currentConnectStatus = connectStatus;
+        satusTimeStamp.put(connectStatus, System.currentTimeMillis());
+    }
 
     public synchronized void addwaitaddIteambuf(MeasurePoint m) {
         waittoregistertagpool.put(m.getPoint().getTag(), m);
@@ -62,7 +81,7 @@ public class OpcExecute implements Runnable {
     public OpcExecute(String function, OpcServeInfo serveInfo, String exename, String ip, String port, String opcsevename, String opcseveip, String opcsevid, SessionManager sessionManager) {
         this.function = function;
         this.serveInfo = serveInfo;
-        this.exename = System.getProperty("user.dir") + "\\" + exename;
+        this.exename = exename;// System.getProperty("user.dir") + "\\" +
         this.ip = ip;
         this.port = port;
         this.opcsevename = opcsevename;
@@ -78,6 +97,7 @@ public class OpcExecute implements Runnable {
         Session session = sessionManager.getSpecialSession(serveInfo.getServeid(), function);
         if (session != null) {
             if (session.getCtx() != null) {
+                currentConnectStatus = ConnectStatus.CONNECTED;
                 return true;
             } else {
                 return false;
@@ -98,13 +118,15 @@ public class OpcExecute implements Runnable {
     public synchronized void connect() {
         if (!isOpcServeOnline()) {
             logger.info("*********need connect " + function);
-            //set reconnect count 1
-            setReconnectcount(1);
+//            setReconnectcount(1);
+            reconnectcount.set(1);
             executePythonBridge.stop();
             executePythonBridge.execute();
+            updateConnextStatus(ConnectStatus.CONNECTTING);
             int trycheck = 3;
             while (trycheck-- > 0) {
                 if (isOpcServeOnline()) {
+                    updateConnextStatus(ConnectStatus.CONNECTED);
                     logger.info("********" + opcsevename + opcseveip + " connect success");
                     registeredMeasurePointpool.clear();
                     if (waittoregistertagpool.size() > 0) {
@@ -133,13 +155,15 @@ public class OpcExecute implements Runnable {
         if (!isOpcServeOnline()) {
             executePythonBridge.stop();
             executePythonBridge.execute();
+            updateConnextStatus(ConnectStatus.CONNECTTING);
             int trycheck = 3;
             while (trycheck-- > 0) {
                 if (isOpcServeOnline()) {
+                    updateConnextStatus(ConnectStatus.CONNECTED);
                     logger.info(opcsevename + opcseveip + function + " reconnect success");
                     logger.info(opcsevename + opcseveip + function + "registeredMeasurePoint size=" + registeredMeasurePointpool.size());
                     registeredMeasurePointpool.clear();
-                    if(waittoregistertagpool.size()>0){
+                    if (waittoregistertagpool.size() > 0) {
                         sendPatchAddItemCmd(waittoregistertagpool.values());
                     }
 
@@ -172,6 +196,7 @@ public class OpcExecute implements Runnable {
             logger.error(e.getMessage(), e);
         }
     }
+
 
     public void dealReadAllItemsResult(JSONObject datajson) {
         if (!datajson.getString("msg").equals("success")) {
@@ -214,6 +239,32 @@ public class OpcExecute implements Runnable {
                 registeredMeasurePointpool.remove(key);
             }
         }
+    }
+
+
+    public void dealWriteResult(JSONObject datajson) {
+
+        if (datajson.containsKey("timestamp")) {
+            long writetimestamp = datajson.getLongValue("timestamp");
+            //是否为旧的数据
+            if (writetimestamp < satusTimeStamp.get(ConnectStatus.CONNECTED) || writetimestamp < satusTimeStamp.get(ConnectStatus.CONNECTTING)) {
+                return;
+            } else {
+                for (String key : datajson.keySet()) {
+                    if (key.equals("function")) {
+                        continue;
+                    }
+                    if (0 == datajson.getInteger(key)) {
+                        //反写数据异常为0则进行重连写
+                        if (!ConnectStatus.CONNECTTING.equals(getCurrentConnectStatus())) {
+                            reconnect();
+                        }
+                        return;
+                    }
+                }
+            }
+        }
+
     }
 
 
@@ -333,79 +384,26 @@ public class OpcExecute implements Runnable {
     }
 
 
+    public enum ConnectStatus {
+        //已经连接
+        CONNECTED,
+        //断开连接
+        DISCONNECTED,
+        //正在连接
+        CONNECTTING;
+
+        private long eventimestamp;
+
+
+    }
+
+
     public Session getMySession() {
         return sessionManager.getSpecialSession(serveInfo.getServeid(), function);
     }
 
-    public void addRetryEvent(Event event) {
-        eventLinkedBlockingQueue.offer(event);
+    public void minsReconnectcount() {
+        reconnectcount.decrementAndGet();
     }
 
-    public ExecutePythonBridge getExecutePythonBridge() {
-        return executePythonBridge;
-    }
-
-    public Map<String, MeasurePoint> getRegisteredMeasurePointpool() {
-        return registeredMeasurePointpool;
-    }
-
-    public synchronized int getReconnectcount() {
-        return reconnectcount;
-    }
-
-    public synchronized void setReconnectcount(int reconnectcount) {
-        this.reconnectcount = reconnectcount;
-    }
-
-    public synchronized void minsReconnectcount() {
-        reconnectcount--;
-    }
-
-    public String getExename() {
-        return exename;
-    }
-
-    public String getIp() {
-        return ip;
-    }
-
-    public String getPort() {
-        return port;
-    }
-
-    public String getOpcsevename() {
-        return opcsevename;
-    }
-
-    public String getOpcseveip() {
-        return opcseveip;
-    }
-
-    public String getOpcsevid() {
-        return opcsevid;
-    }
-
-    public OpcServeInfo getServeInfo() {
-        return serveInfo;
-    }
-
-    public SessionManager getSessionManager() {
-        return sessionManager;
-    }
-
-    public long getWritetimestamp() {
-        return writetimestamp;
-    }
-
-    public String getFunction() {
-        return function;
-    }
-
-    public Map<String, MeasurePoint> getWaittoregistertagpool() {
-        return waittoregistertagpool;
-    }
-
-    public LinkedBlockingQueue<Event> getEventLinkedBlockingQueue() {
-        return eventLinkedBlockingQueue;
-    }
 }

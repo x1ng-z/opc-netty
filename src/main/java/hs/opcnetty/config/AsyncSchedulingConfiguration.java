@@ -31,7 +31,7 @@ public class AsyncSchedulingConfiguration implements AsyncConfigurer, Scheduling
     public ThreadPoolTaskScheduler taskScheduler() {
         ThreadPoolTaskScheduler scheduler = new ThreadPoolTaskScheduler();
         //当前线程数
-        scheduler.setPoolSize(100);
+        scheduler.setPoolSize(1000);
         //定时任务前缀
         scheduler.setThreadNamePrefix("scheduler-");
         //该方法用来设置线程池中 任务的等待时间，如果超过这个时间还没有销毁就 强制销毁，以确保应用最后能够被关闭，而不是阻塞住

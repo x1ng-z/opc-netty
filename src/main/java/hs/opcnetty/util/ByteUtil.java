@@ -1,5 +1,7 @@
 package hs.opcnetty.util;
 
+import java.util.Map;
+
 /**
  * @author zzx
  * @version 1.0
@@ -8,9 +10,13 @@ package hs.opcnetty.util;
 public class ByteUtil {
 
     public static enum CType {
-        /**int*/
+        /**
+         * int
+         */
         Int(4),
-        /**long*/
+        /**
+         * long
+         */
         Long(8);
 
         private int bytenum;
@@ -45,6 +51,8 @@ public class ByteUtil {
         }
         return value;
     }
+
+
 
 
 }

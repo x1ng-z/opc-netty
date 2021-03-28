@@ -22,8 +22,6 @@ public class OpcItemOperator {
     @Autowired
     private OpcConnectManger opcConnectManger;
 
-
-
     /**
      * 添加点位
      * @param opcpointlist Point参数详细查看类文件
